@@ -1,0 +1,4 @@
+#+TITLE: Chapter 2: Python Infrastructure
+
+An overview of package management, docker, and setting up a digital
+ocean droplet with jupyter.

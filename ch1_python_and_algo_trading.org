@@ -1,1 +1,26 @@
 #+TITLE: Chapter 1: Python and Algorithmic Trading
+
+This is mostly an overview of python, associated packages, and basic
+descriptions of trading terminology.
+
+A list of some financial trading motives:
+
+- beta trading
+  - earning market risk premia by investing in, for instance, exchange
+    traded funds (ETFs) that replicate the performance of the S&P 500
+- alpha generation
+  - earning risk premia independent of the market by, for example,
+    selling short stocks listed in the S&P 500 or ETFs on the S&P 500
+- static hedging
+  - hedging against market risks by buying, for example, out of the
+    money put options on the S&P 500
+- dynamic hedging
+  - hedging against market risks affecting options on the S&P 500 by,
+    for example, dynamically trading futures on the S&P 500 and
+    appropriate cash, money market, or rate instruments
+- asset-liability management
+  - trading S&P 500 stocks and ETFs to be able to cover liabilities
+    resulting from, for example, writing life insurance policies
+- market making
+  - providing, for example, liquidity to options on the S&P 500 by
+    buying and selling options at different bid and ask prices
