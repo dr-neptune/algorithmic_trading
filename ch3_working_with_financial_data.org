@@ -1,1 +1,66 @@
 #+TITLE: Chapter 3: Working with Financial Data
+
+The goal for this chapter is to have available financial data in a
+format with which the backtesting of trading ideas and hypotheses can
+be implemented effectively.
+
+* Reading Financial Data From Different Sources
+
+** The Data Set
+
+#+begin_src python
+fn = 'data/AAPL.csv'
+
+with open(fn, 'r') as f:
+    for _ in range(5):
+        print(f.readline(), end='')
+#+end_src
+
+** With Pandas
+
+#+begin_src python
+import pandas as pd
+
+data = pd.read_csv(fn, index_col=0, parse_dates=True)
+#+end_src
+
+* Working with Open Data Sources
+
+A lot of the free financial data sets are vanishing. One exception is
+Quandl, which aggregates a large number of open (and premium) data
+sources.
+
+#+begin_src python
+import quandl as q
+
+data = q.get('BCHAIN/MKPRU')
+
+data.info()
+
+# look at annual values
+data['Value'].resample('A').last()
+
+# for single stocks
+data = q.get('FSE/SAP_X', start_date='2018-1-1', end_date='2020-05-01')
+
+# get option implied volatilities for MSFT
+# needs api key
+vol = q.get('VOL/MSFT')
+#+end_src
+
+* Eikon Data API
+
+This is proprietary, costs a chunk-o-change
+
+* Storing Financial Data Efficiently
+
+One of the most important scenarios for the management of data sets is
+"retrieve once, use multiple times". In the first case, data may be
+retrieved from a web service and then used to backtest a strategy
+multiple times based on a temporary, in-memory copy of the dataset. In
+the second case, tick data that is continually received is written to
+disk and later on again used multiple times for certain manipulations
+(like aggregations) in combination with a backtesting procedure.
+
+Using something like HDF5 to write and read a binary file gives us a
+speed boost.
