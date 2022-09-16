@@ -63,4 +63,10 @@ disk and later on again used multiple times for certain manipulations
 (like aggregations) in combination with a backtesting procedure.
 
 Using something like HDF5 to write and read a binary file gives us a
-speed boost.
+speed boost. The =PyTables= package, with import name =tables=, is a
+wrapper for the HDF5 binary storage library that is also used by
+pandas for its HDFStore implementation.
+
+The =TsTables= package in turn is dedicated to the efficient handling of
+large financial time series datasets based on the HDF5 binary storage
+library. It is essentially PyTables + Time Series.
