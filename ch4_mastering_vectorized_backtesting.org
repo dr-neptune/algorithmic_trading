@@ -1,1 +1,92 @@
 #+TITLE: Chapter 4: Mastering Vectorized Backtesting
+
+This chapter covers backtesting of the following 3 strategies:
+
+1. Simple Moving Averages (SMA) based strategies
+2. Momentum Strategies
+3. Mean-Reversion Strategies
+
+* Vectorization with Numpy
+
+#+begin_src python
+# simple arrays
+import numpy as np
+
+v = [1, 2, 3, 4, 5]
+a = np.array(v)
+
+type(a)
+
+2 * a
+
+0.5 * a + 2
+
+# 2D array
+a = np.arange(12).reshape((4, 3))
+2 * a
+a ** 2
+
+# summary statistics
+a.mean()
+np.mean(a)
+np.mean(a, axis=0)
+np.mean(a, axis=1)
+#+end_src
+
+* Vectorization with Pandas
+
+#+begin_src python
+import pandas as pd
+
+a = np.arange(15).reshape(5, 3)
+
+cols = list('abc')
+idx = pd.date_range('2022-09-16', periods=5, freq='B')
+df = pd.DataFrame(a, columns=cols, index=idx)
+#+end_src
+
+In principle, vectorization now works similarly to ndarray
+objects. One difference is that aggregation operations default to
+column-wise results.
+
+#+begin_src python
+2 * df
+df.sum()
+np.mean(df)
+#+end_src
+
+Column-wise operations can be implemented by referencing the
+respective column names, either by the bracket notation or the dot
+notation:
+
+#+begin_src python
+df['a'] + df['c']
+
+0.5 * df.a + 2 * df.b - df.c
+#+end_src
+
+* Strategies Based on Simple Moving Averages
+
+** Getting into the Basics
+
+#+begin_src python
+raw = pd.read_csv('http://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                  index_col=0, parse_dates=True).dropna()
+
+df = pd.DataFrame(raw['EUR=']).rename(columns={'EUR=': 'price'})
+
+# calc SMAs
+df['SMA1'] = df['price'].rolling(42).mean()
+df['SMA2'] = df['price'].rolling(252).mean()
+
+# visualize
+import matplotlib
+matplotlib.use('tkAgg')
+import matplotlib.pyplot as plt
+
+df.plot(title='EUR/USD | 42 & 252 day SMAs')
+plt.show()
+#+end_src
+
+The rule is to *go long whenever the shorter SMA is above the longer
+one and vice versa*.
