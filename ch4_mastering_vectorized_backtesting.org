@@ -90,3 +90,246 @@ plt.show()
 
 The rule is to *go long whenever the shorter SMA is above the longer
 one and vice versa*.
+
+Returns:
+
+#+begin_src python
+# get log returns of the strategy given position and market returns
+df['strategy'] = df['position'].shift(1) * df['returns']
+
+# get sum of returns and apply exp transform to calculate gross performance
+srets = df[['returns', 'strategy']]
+
+srets.sum().apply(np.exp)
+
+# gross performance of EUR/USD compared to the SMA-based strategy
+srets.cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+Risk Statistics:
+
+#+begin_src python
+# get risk statistics
+annualized_mean_return_log = srets.mean() * 252
+
+annualized_mean_return = np.exp(annualized_mean_return_log)
+
+# standard deviation
+std_dev_log = srets.std() * 252 ** 0.5
+std_dev_return = (srets.apply(np.exp) - 1).std() * 252 ** 0.5
+#+end_src
+
+Other useful helper statistics are /maximum drawdown/ and the /longest
+drawdown period/:
+
+#+begin_src python
+df['cumret'] = df['strategy'].cumsum().apply(np.exp)  # gross performance over time
+df['cummax'] = df['cumret'].cummax()                  # running max value of gross performance
+
+# gross performance and cumulative maximum performance of the SMA-based strategy
+df[['cumret', 'cummax']].dropna().plot()
+plt.show()
+
+# max drawdown
+drawdown = df['cummax'] - df['cumret']
+drawdown.max()
+
+# longest drawdown period
+dt_idx = lambda srs: srs.reset_index().astype({'Date': 'datetime64[ns]'})['Date']
+
+periods = (dt_idx(drawdown[drawdown == 0][1:]) -
+           dt_idx(drawdown[drawdown == 0][:-1]))
+
+periods.max()  # 1563 days, or ~4.3 years; oof
+#+end_src
+
+** Generalizing the Approach
+
+#+begin_src python
+import numpy as np
+import pandas as pd
+from scipy.optimize import brute
+
+class SMAVectorBacktester():
+    """
+    Vectorized Backtesting of SMA-based trading strategies
+
+    Attributes
+    ==========
+    symbol: str
+        RIC symbol with which to work
+    SMA1: int
+        time window in days for shorter SMA
+    SMA2: int
+        time window in days for longer SMA
+    start: str
+        start date for data retrieval
+    end: str
+        end date for data retrieval
+
+    Methods
+    =======
+    get_data:
+        retrieves and prepares the base data set
+    set_parameters:
+        sets one or two new SMA parameters
+    run_strategy:
+        runs the backtest for the SMA-based strategy
+    plot_results:
+        plots the performance of the strategy compared to the symbol
+    update_and_run:
+        updates SMA parameters and returns the (negative) absolute performance
+    optimize_parameters:
+        implements a brute force optimization for the two SMA parameters
+    """
+    def __init__(self, symbol, SMA1, SMA2, start, end):
+        self.symbol = symbol
+        self.SMA1 = SMA1
+        self.SMA2 = SMA2
+        self.start = start
+        self.end = end
+        self.results = None
+        self.get_data()
+
+    def get_data(self):
+        """get data and preprocess it"""
+        raw = pd.read_csv('https://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                          index_col=0, parse_dates=True).dropna()
+        raw = pd.DataFrame(raw[self.symbol])
+        raw = raw.loc[self.start:self.end]
+        raw = raw.rename(columns=[self.symbol: 'price'])
+
+        raw['return'] = np.log(raw / raw.shift(1))
+        raw['SMA1'] = raw['price'].rolling(self.SMA1).mean()
+        raw['SMA2'] = raw['price'].rolling(self.SMA2).mean()
+        self.data = raw
+
+    def set_parameters(self, SMA1=None, SMA2=None):
+        """update SMA params and respective time series"""
+        if SMA1 is not None:
+            self.SMA1 = SMA1
+            self.data['SMA1'] = self.data['price'].rolling(self.SMA1).mean()
+        if SMA2 is not None:
+            self.SMA2 = SMA2
+            self.data['SMA2'] = self.data['price'].rolling(self.SMA2).mean()
+
+    def run_strategy(self):
+        """backtest the trading strategy"""
+        df = self.data.copy().dropna()
+        df['position'] = np.where(df['SMA1'] > df['SMA2'], 1, -1)
+        df['strategy'] = df['position'].shift(1) * df['return']
+        df = df.dropna()
+        df['creturns'] = df['return'].cumsum().apply(np.exp)
+        df['cstrategy'] = df['strategy'].cumsum().apply(np.exp)
+        self.results = df
+        # gross performance
+        aperf = df['cstrategy'].iloc[-1]
+        # out/underperformance of strategy
+        operf = aperf - df['creturns'].iloc[-1]
+        return round(aperf, 2), round(operf, 2)
+
+    def plot_results(self):
+        """plot the cumulative performance of the trading strategy compared to the symbol"""
+        if self.results is None:
+            print("No results to plot yet. Run a strategy")
+        title = '%s | SMA1 = %d, SMA2 = %d' % (self.symbol,
+                                               self.SMA1,
+                                               self.SMA2)
+        self.results[['creturns', 'cstrategy']].plot(title=title)
+        plt.show()
+
+    def update_and_run(self, SMA):
+        """update SMA params and returns negative absolute performance (for minimization algo)"""
+        self.set_parameters(int(SMA[0]), int(SMA[1]))
+        return -self.run_strategy()[0]
+
+    def optimize_parameters(self, SMA1_range, SMA2_range):
+        """finds global maximum given the SMA parameter ranges"""
+        opt = brute(self.update_and_run, (SMA1_range, SMA2_range), finish=None)
+        return opt, -self.update_and_run(opt)
+#+end_src
+
+
+#+begin_src python
+smabt = SMAVectorBacktester('EUR=', 42, 252, '2010-1-1', '2020-12-31')
+print(smabt.run_strategy())  # (1.29, 0.45)
+#+end_src
+
+Gross performance of the strategy with SMA1=42, SMA2=252 is 1.29, or
+129%.
+
+#+begin_src python
+print(smabt.optimize_parameters((30, 56, 4), (200, 300, 4)))
+
+smabt.plot_results()
+#+end_src
+
+The optimized strategy yields an absolute return of 149% for
+the parameter combination SMA1=50, SMA2=236.
+
+#+begin_src python
+SMAVectorBacktester("EUR=", 50, 236, "2010-1-1", "2020-12-31").run_strategy()
+#+end_src
+
+* Strategies Based on Momentum
+
+There are 2 basic types of momentum strategies.
+
+The first type is *cross-sectional* momentum stragies. Selecting from a
+larger pool of instruments, these strategies buy those instruments
+that have recently outperformed relative to their peers (or a
+benchmark) and sell those instruments that have underperformed.
+
+The second type is *time-series* momentum strategies. These strategies
+buy those instruments that have recently performed well and sell those
+instruments that have recently performed poorly. In this case, the
+benchmark is the past returns of the instrument itself.
+
+** Getting into the Basics
+
+simplest momentum strategy: buy the stock if the last return was
+positive and sell it if it was negative
+
+#+begin_src python
+df['position'] = np.sign(df['returns'])
+df['strategy'] = df['position'].shift(1) * df['returns']
+
+# this strategy strongly underperforms
+df[['returns', 'strategy']].dropna().cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+We can use the mean of the last $n$ returns to generalize a bit:
+
+#+begin_src python
+# using the last n returns
+df['position'] = np.sign(df['returns'].rolling(3).mean())
+df['strategy'] = df['position'].shift(1) * df['returns']
+
+# works, but is sensitive to the rolling window
+df[['returns', 'strategy']].dropna().cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+Time series momentum might be expected intraday as well
+
+#+begin_src python
+fn = 'data/AAPL_1min_05052020.csv'
+df = pd.read_csv(fn, index_col=0, parse_dates=True)
+
+df['returns'] = np.log(df['CLOSE'] / df['CLOSE'].shift(1))
+
+to_plot = ['returns']
+
+for m in [1, 3, 5, 7, 9]:
+    df['position_%d' % m] = np.sign(df['returns']).rolling(m).mean()
+    df['strategy_%d' % m] = df['position_%d' % m].shift(1) * df['returns']
+    to_plot.append('strategy_%d' % m)
+
+df[to_plot].dropna().cumsum().apply(np.exp).plot(title='AAPL Intraday 05May2020',
+                                                 style=['-', '--', '--', '--', '--', '--'])
+plt.show()
+#+end_src
+
+** Generalizing the Approach
