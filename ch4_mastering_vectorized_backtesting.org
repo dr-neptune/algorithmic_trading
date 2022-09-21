@@ -333,3 +333,119 @@ plt.show()
 #+end_src
 
 ** Generalizing the Approach
+
+#+begin_src python
+import numpy as np
+import pandas as pd
+
+
+class MomVectorBacktester:
+    """
+    Vectorized backtesting of momentum-based strategies.
+
+    Attributes
+    ==========
+    symbol: str
+        RIC (financial instrument) to work with
+    start: str
+        start date for data selection
+    end: str
+        end date for data selection
+    amount: int, float
+        amount to be invested at the beginning
+    tc: float
+        proportional transaction costs (e.g., 0.5% = 0.005) per trade
+    Methods
+    =======
+    get_data:
+        retrieves and prepares the base data set
+    run_strategy:
+        runs the backtest for the momentum-based strategy
+    plot_results:
+        plots the performance of the strategy compared to the symbol
+    """
+    def __init__(self, symbol, start, end, amount, tc):
+        self.symbol = symbol
+        self.start = start
+        self.end = end
+        self.amount = amount
+        self.tc = tc
+        self.results = None
+        self.get_data()
+
+    def get_data(self):
+        """retrieve and prepare data"""
+        raw = pd.read_csv('https://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                          index_col=0, parse_dates=True).dropna()
+        raw = pd.DataFrame(raw[self.symbol])
+        raw = raw.loc[self.start:self.end]
+        raw = raw.rename(columns={self.symbol: 'price'})
+        raw['return'] = np.log(raw / raw.shift(1))
+        self.data = raw
+
+    def run_strategy(self, momentum=1):
+        """backtests the trading strategy"""
+        self.momentum = momentum
+        df = self.data.copy().dropna()
+        df['position'] = np.sign(df['return'].rolling(momentum).mean())
+        df['strategy'] = df['position'].shift(1) * df['return']
+
+        # determine when a trade takes place
+        df = df.dropna()
+        trades = df['position'].diff().fillna(0) != 0
+        df['strategy'][trades] -= self.tc
+        df['creturns'] = self.amount * df['return'].cumsum().apply(np.exp)
+        df['cstrategy'] = self.amount * df['strategy'].cumsum().apply(np.exp)
+        self.results = df
+
+        # absolute performance of the strategy
+        aperf = self.results['cstrategy'].iloc[-1]
+        operf = aperf - self.results['creturns'].iloc[-1]
+        return round(aperf, 2), round(operf, 2)
+
+    def plot_results(self):
+        """plot the cumulative performance of the trading strategy compared to the symbol"""
+        if self.results is None:
+            print("No results to plot yet. Run a strategy")
+        title = "%s | TC = %.4f" % (self.symbol, self.tc)
+        self.results[['creturns', 'cstrategy']].plot(title=title)
+        plt.show()
+#+end_src
+
+Compared with the =SMAVectorBacktester= class, this one introduces 2
+important generalizations:
+
+1. The fixed amount to be inveseted at the beginning of the
+   backtesting period
+2. Proportional transaction costs to get closer to market realities
+   cost-wise
+
+The addition of transaction costs is important in the context of time
+series momentum strategies that often lead to a large number of
+transactions over time.
+
+
+#+begin_src python
+mombt = MomVectorBacktester('XAU=', '2010-1-1', '2019-12-31', 10000, 0.0)
+mombt.run_strategy(momentum=3)
+mombt.plot_results()
+
+mombt = MomVectorBacktester('XAU=', '2010-1-1', '2019-12-31', 10000, 0.001)
+mombt.run_strategy(momentum=3)
+mombt.plot_results()
+#+end_src
+
+These are finicky. Changing the dates or momentum a bit can lead to
+outstanding losses or outstanding gains.
+
+* Strategies Based on Mean Reversion
+
+Roughly speaking, mean-reversion strategies rely on a reasoning that
+is the opposite of momentum strategies. If a financial instrument has
+performed "too well" relative to its trend, it is shorted, and vice
+versa.
+
+The idea is to define a threshold between the current stock price and
+the SMA, which signals a long or short position.
+
+** Getting into the Basics
