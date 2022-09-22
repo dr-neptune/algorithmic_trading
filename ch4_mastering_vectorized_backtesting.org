@@ -449,3 +449,139 @@ The idea is to define a threshold between the current stock price and
 the SMA, which signals a long or short position.
 
 ** Getting into the Basics
+
+The examples that follow are for 2 different financial instruments for
+which one would expect mean reversion since they are based on the gold
+price:
+
+- =GLD= is the symbol for SPDR gold shares
+- =GDX= is the symbol for the VanEck Vectors Gold Miners ETF
+
+The example starts with GDX and implements a mean-reversion strategy
+on the basis of an SMA of 25 days and a threshold value of 3.5 for the
+absolute deviation of the current price to deviate from the SMA to
+signal a positioning.
+
+#+begin_src python
+df = pd.DataFrame(raw['GDX']).rename(columns={'GDX': 'price'})
+df['returns'] = np.log(df['price'] / df['price'].shift(1))
+
+SMA = 25
+threshold = 3.5
+
+df['SMA'] = df['price'].rolling(SMA).mean()
+
+df['distance'] = df['price'] - df['SMA']
+
+df['distance'].dropna().plot()
+plt.axhline(threshold, color='green')
+plt.axhline(-threshold, color='green')
+plt.axhline(0, color='purple')
+plt.show()
+#+end_src
+
+
+Based on the differences and the fixed threshold values, positionings
+can again be derived in vectorized fashion.
+
+#+begin_src python
+df['position'] = np.where(df['distance'] > threshold, -1, np.nan) # short
+df['position'] = np.where(df['distance'] < -threshold, 1, df['position']) # long
+# if there is a change in the sign of the distance value, go market neutral
+# ow keep position unchanged
+df['position'] = np.where(df['distance'] * df['distance'].shift(1) < 0, 0, df['position'])
+
+# forward fill all NaN positions with the previous values
+df['position'] = df['position'].ffill().fillna(0)
+
+df['position'].iloc[SMA:].plot(ylim=[-1.1, 1.1])
+plt.show()
+#+end_src
+
+The final step is to derive the strategy returns
+
+#+begin_src python
+df['strategy'] = df['position'].shift(1) * df['returns']
+df[['returns', 'strategy']].dropna().cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+* Generalizing the Approach
+
+#+begin_src python
+class MRVectorBacktester(MomVectorBacktester):
+    """
+    Class for backtesting of mean reversion based trading strategies
+
+    Attributes
+    ==========
+    symbol: str
+        RIC symbol with which to work
+    start: str
+        start date for data retrieval
+    end: str
+        end date for data retrieval
+    amount: int, float
+        amount to be invested at the beginning
+    tc: float
+        proportional transaction costs (e.g., 0.5% = 0.005) per trade
+    Methods
+    =======
+    get_data:
+        retrieves and prepares the base data set
+    run_strategy:
+        runs the backtest for the mean reversion-based strategy
+    plot_results:
+        plots the performance of the strategy compared to the symbol
+    """
+    def run_strategy(self, SMA, threshold):
+        """backtests the trading strategy"""
+        df = self.data.copy().dropna()
+        df['sma'] = df['price'].rolling(SMA).mean()
+        df['distance'] = df['price'] - df['sma']
+        df = df.dropna()
+
+        # sell signals
+        df['position'] = np.where(df['distance'] > threshold, -1, np.nan)          # sell
+        df['position'] = np.where(df['distance'] < -threshold, 1, df['position'])  # buy
+        # crossing of current price and SMA (zero distance)
+        df['position'] = np.where(df['distance'] * df['distance'].shift(1) < 0,
+                                  0, df['position'])
+        df['position'] = df['position'].ffill().fillna(0)
+        df['strategy'] = df['position'].shift(1) * df['return']
+
+        # determine when a trade takes place
+        trades = df['position'].diff().fillna(0) != 0
+
+        # subtract transaction costs from return when trade takes place
+        df['strategy'][trades] -= self.tc
+        df['creturns'] = self.amount * df['return'].cumsum().apply(np.exp)
+        df['cstrategy'] = self.amount * df['strategy'].cumsum().apply(np.exp)
+        self.results = df
+        aperf = self.results['cstrategy'].iloc[-1]
+        operf = aperf - self.results['creturns'].iloc[-1]
+        return round(aperf, 2), round(operf, 2)
+
+
+mrbt = MRVectorBacktester('GDX', '2010-1-1', '2020-12-31', 10000, 0.0)
+print(mrbt.run_strategy(SMA=25, threshold=5))
+
+mrbt = MRVectorBacktester('GDX', '2010-1-1', '2020-12-31', 10000, 0.001)
+print(mrbt.run_strategy(SMA=25, threshold=5))
+
+mrbt = MRVectorBacktester('GDX', '2010-1-1', '2020-12-31', 10000, 0.001)
+print(mrbt.run_strategy(SMA=42, threshold=7.5))
+
+mrbt = MRVectorBacktester('GLD', '2010-1-1', '2019-12-31', 10000, 0.001)
+print(mrbt.run_strategy(SMA=43, threshold=7.5))
+
+mrbt.plot_results()
+#+end_src
+
+* Data Snooping and Overfitting
+
+The ability to show examples with good results often comes at the cost
+of /data snooping/, which can be defined as follows:
+
+*Data snooping* occurs when a given set of data is used more than once
+ for purposes of inference or model selection.
