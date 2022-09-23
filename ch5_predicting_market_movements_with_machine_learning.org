@@ -70,3 +70,117 @@ np.dot(m[:lags].T, reg)  # dot product reveals prediction results
 
 
 * Predicting Index Levels
+
+#+begin_src python
+import pandas as pd
+
+# retrieve EOD data
+raw = pd.read_csv('https://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                  index_col=0, parse_dates=True).dropna()
+
+raw.info()
+
+symbol = 'EUR='
+
+df = pd.DataFrame(raw[symbol]).rename(columns={symbol: 'price'})
+
+lags = 5
+
+cols = []
+for lag in range(1, lags + 1):
+    col = f'lag_{lag}'
+    df[col] = df['price'].shift(lag)
+    cols.append(col)
+df = df.dropna()
+
+reg = np.linalg.lstsq(df[cols], df['price'], rcond=None)[0]
+
+reg
+
+df['prediction'] = np.dot(df[cols], reg)
+df[['price', 'prediction']].loc['2019-10-1':].plot()
+plt.show()
+#+end_src
+
+We see that today's rate is roughly yesterdays rate, i.e. a shift to
+the right by 1 trading day.
+
+* Predicting Future Returns
+
+log returns may be better than absolute rate levels due to, for
+example, their characteristic of making the time series data
+stationary.
+
+#+begin_src python
+df['return'] = np.log(df['price'] / df['price'].shift(1)).dropna()
+
+cols = []
+for lag in range(1, lags + 1):
+    col = f'lag_{lag}'
+    df[col] = df['price'].shift(lag)
+    cols.append(col)
+df = df.dropna()
+
+reg = np.linalg.lstsq(df[cols], df['return'], rcond=None)[0]
+
+reg
+
+df['prediction'] = np.dot(df[cols], reg)
+df[['return', 'prediction']].loc['2019-10-1':].plot()
+plt.show()
+#+end_src
+
+From a trading pov, one might argue that it is not the magnitude of
+the forecasted return that is relevant, but rather whether the
+direction is forecasted correctly or not.
+
+#+begin_src python
+hits = np.sign(df['return'] * df['prediction']).value_counts()
+hits
+
+hits.values[0] / sum(hits)  # 0.5067
+#+end_src
+
+not great, pretty much exactly 50/50
+
+* Predicting Future Market Direction
+
+Can we improve the hit ratio by directly implementing the linear
+regression based on the sign of the log returns that serve as the
+dependendant variables?
+
+
+#+begin_src python
+reg = np.linalg.lstsq(df[cols], np.sign(df['return']), rcond=None)[0]
+
+df['prediction'] = np.sign(np.dot(df[cols], reg))
+df['prediction'].value_counts()
+
+hits = np.sign(df['return'] * df['prediction']).value_counts()
+hits
+
+hits.values[0] / sum(hits)  # 0.50997
+#+end_src
+
+a 0.03% increase
+
+* Vectorized Backtesting of Regression-Based Strategy
+
+The hit ratio alone doesn't tell us too much about the economic
+potential of a trading strategy using linear regression in the way
+presented so far. It is well known that the 10 worst and best days in
+the markets for a given period of time considerably influence the
+overall performance of investments. In an ideal world, a long-short
+trader would try to benefit from both the best and worst days by going
+short and long, respectively, on the basis of appropriate market
+timing indicators.
+
+This implies that, in addition to the hit ratio, the quality of market
+timing matters.
+
+#+begin_src python
+df['strategy'] = df['prediction'] * df['return']
+
+df[['return', 'strategy']].dropna().cumsum().apply(np.exp).dropna().plot()
+plt.show()
+#+end_src
