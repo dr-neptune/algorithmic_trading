@@ -1,1 +1,72 @@
 #+TITLE: Chapter 5: Predicting Market Movements with Machine Learning
+
+This chapter covers the following types of trading strategies:
+
+- linear regression based strategies
+- ML based strategies (see above?)
+- Deep-learning based strategies
+
+* Using Linear Regression for Market Movement Prediction
+
+** A Quick Overview of Linear Regression
+
+#+begin_src python
+import os
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('tkAgg')
+
+x = np.linspace(0, 10)  # gen evenly spaced grid of floats
+
+# set random seed for rng
+def set_seeds(seed=8888):
+    random.seed(seed)
+    np.random.seed(seed)
+    print('ok')
+
+set_seeds()
+
+# generate random data for y values
+y = x + np.random.standard_normal(len(x))
+
+# fit an ols regression of degree 1
+reg = np.polyfit(x, y, deg=1)
+reg
+
+# plot it
+plt.figure()
+plt.plot(x, y, 'bo', label='data')
+plt.plot(x, np.polyval(reg, x), 'r', lw=2.5, label='linear regression')
+plt.legend(loc=0)
+plt.show()
+#+end_src
+
+* The Basic Idea for Price Prediction
+
+Price prediction based on time series data has to deal with the time
+index.
+
+#+begin_src python
+x = np.arange(12)
+x
+
+lags = 3
+m = np.zeros((lags + 1, len(x) - lags))
+
+m[lags] = x[lags:]  # target variable y
+
+for i in range(lags):          # iterate over 0 -> lags - 1
+    m[i] = x[i:i - lags]       # defines the basis vectors
+
+m.T
+
+reg = np.linalg.lstsq(m[:lags].T, m[lags], rcond=None)[0]  # implement OLS
+reg  # print out the optimal parameters
+
+np.dot(m[:lags].T, reg)  # dot product reveals prediction results
+#+end_src
+
+
+* Predicting Index Levels
