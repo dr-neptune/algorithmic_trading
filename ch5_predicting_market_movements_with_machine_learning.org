@@ -333,3 +333,79 @@ lm.predict(m[:lags].T)
 #+end_src
 
 ** A Simple Classification Problem
+
+#+begin_src python
+hours = np.array([0.5, 0.75, 1., 1.25, 1.5, 1.75, 1.75, 2.,
+                  2.25, 2.5, 2.75, 3., 3.25, 3.5, 4., 4.25,
+                  4.5, 4.75, 5., 5.5])
+
+success = np.array([0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1,
+                    0, 1, 1, 1, 1, 1, 1])
+
+# fit logistic regression
+lm = linear_model.LogisticRegression(solver='lbfgs')
+hrs = hours.reshape(1, -1).T
+lm.fit(hrs, success)
+prediction = lm.predict(hrs)
+
+# probabilities for 0 and 1
+prob = lm.predict_proba(hrs)
+
+plt.figure()
+plt.plot(hours, success, 'ro', label='data')
+plt.plot(hours, prediction, 'b', label='prediction')
+plt.plot(hours, prob.T[0], 'm--', label='$p(h)$ for 0')
+plt.plot(hours, prob.T[1], 'g-.', label='$p(h)$ for 1')
+plt.ylim(-0.2, 1.2)
+plt.show()
+#+end_src
+
+* Using Logistic Regression to Predict Market Direction
+
+#+begin_src python
+# get data
+symbol = 'GLD'
+df = pd.DataFrame(raw[symbol]).rename(columns={symbol: 'price'})
+
+# get returns
+df['return'] = np.log(df['price'] / df['price'].shift(1)).dropna()
+
+# make logreg with lags as features
+lags = 5
+
+cols = []
+for lag in range(1, lags + 1):
+    col = f'lag_{lag}'
+    df[col] = df['return'].shift(lag)
+    cols.append(col)
+
+df = df.dropna()
+
+from sklearn.metrics import accuracy_score
+
+# fit model
+lm = linear_model.LogisticRegression(C=1e7, solver='lbfgs',
+                                     multi_class='auto',
+                                     max_iter=1000)
+
+lm.fit(df[cols], np.sign(df['return']))
+
+df['prediction'] = lm.predict(df[cols])
+df['prediction'].value_counts()
+
+# get overview of results
+hits = (np.sign(df['return'].iloc[lags:] *
+                df['prediction'].iloc[lags:])
+        .value_counts())
+
+hits
+
+accuracy_score(df['prediction'], np.sign(df['return']))
+
+# show regular returns vs. strategy
+df['strategy'] = df['prediction'] * df['return']
+df[['return', 'strategy']].cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+* Generalizing the Approach
