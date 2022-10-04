@@ -409,3 +409,287 @@ plt.show()
 #+end_src
 
 * Generalizing the Approach
+
+#+begin_src python
+class ScikitVectorBacktester:
+    """
+    Class for the vectorized backtesting of machine learning based strategies
+
+    Attributes
+    ==========
+    symbol: str
+        TR RIC (financial instrument) to work with
+    start: str
+        start date for data selection
+    end: str
+        end date for data selection
+    amount: int, float
+        amount to be invested at the beginning
+    tc: float
+        proportional transaction costs (e.g., 0.5% = 0.005) per trade
+    model: str
+        either 'regression' or 'logistic'
+
+    Methods
+    =======
+    get_data:
+        retrieves and prepares the base data set
+    select_data:
+        selects a sub-set of the data
+    prepare_features:
+        prepares the features data for the model fitting
+    fit_model:
+        implements the fitting step
+    run_strategy:
+        runs the backtest for the regression-based strategy
+    plot_results:
+        plots the performance of the strategy compared to the symbol
+    """
+    def __init__(self, symbol, start, end, amount, tc, model):
+        self.symbol = symbol
+        self.start = start
+        self.end = end
+        self.amount = amount
+        self.tc = tc
+        self.results = None
+
+        if model == 'regression':
+            self.model = linear_model.LogisticRegression()
+        elif model == 'logistic':
+            self.model = linear_model.LogisticRegression(C=1e6, solver='lbfgs', multi_class='ovr', max_iter=1000)
+        else:
+            raise ValueError('Model not known or not yet implemented')
+
+        self.get_data()
+
+    def get_data(self):
+        """retrieves and prepares data"""
+        raw = pd.read_csv('https://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                          index_col=0, parse_dates=True).dropna()
+        raw = pd.DataFrame(raw[self.symbol])
+        raw = raw.loc[self.start:self.end].rename(columns={self.symbol: 'price'})
+        raw['returns'] = np.log(raw / raw.shift(1))
+        self.data = raw.dropna()
+
+    def select_data(self, start, end):
+        """selects sub-sets of the financial data"""
+        data = self.data[(self.data.index >= start) &
+                         (self.data.index <= end)].copy()
+        return data
+
+    def prepare_features(self, start, end):
+        """prepares the feature columns for the regression and prediction steps"""
+        self.data_subset = self.select_data(start, end)
+        self.feature_columns = []
+        for lag in range(1, self.lags + 1):
+            col = f'lag_{lag}'
+            self.data_subset[col] = self.data_subset['returns'].shift(lag)
+            self.feature_columns.append(col)
+        self.data_subset = self.data_subset.dropna()
+
+    def fit_model(self, start, end):
+        """implements the fitting step"""
+        self.prepare_features(start, end)
+        self.model.fit(self.data_subset[self.feature_columns],
+                       np.sign(self.data_subset['returns']))
+
+    def run_strategy(self, start_in, end_in, start_out, end_out, lags=3):
+        """backtests the trading strategy"""
+        self.lags = lags
+        self.fit_model(start_in, end_in)
+        self.prepare_features(start_out, end_out)
+
+        prediction = self.model.predict(self.data_subset[self.feature_columns])
+        self.data_subset['prediction'] = prediction
+        self.data_subset['strategy'] = (self.data_subset['prediction'] * self.data_subset['returns'])
+
+        # determine when a trade takes place
+        trades = self.data_subset['prediction'].diff().fillna(0) != 0
+
+        # subtract transaction costs from return when trade takes place
+        self.data_subset['strategy'][trades] -= self.tc
+        self.data_subset['creturns'] = (self.amount * self.data_subset['returns'].cumsum().apply(np.exp))
+        self.data_subset['cstrategy'] = (self.amount * self.data_subset['strategy'].cumsum().apply(np.exp))
+        self.results = self.data_subset
+
+        # absolute performance of the strategy
+        aperf = self.results['cstrategy'].iloc[-1]
+        # out/underperformance of the strategy
+        operf = aperf - self.results['creturns'].iloc[-1]
+
+        return round(aperf, 2), round(operf, 2)
+
+    def plot_results(self):
+        """plots the cumulative performance of the trading strategy compared to the symbol"""
+        if self.results is None:
+            print('No results to plot yet. Run a strategy')
+        title = f'{self.symbol} | TC = {self.tc:.4f}'
+        self.results[['creturns', 'cstrategy']].plot(title=title)
+        plt.show()
+#+end_src
+
+#+begin_src python
+scibt = ScikitVectorBacktester('EUR=', '2010-1-1', '2019-12-31', 10000, 0.0, 'logistic')
+scibt.run_strategy(*['2015-1-1', '2019-12-31']*2, lags=15)
+scibt.plot_results()
+
+scibt.run_strategy(*['2016-1-1', '2018-12-31']*2, lags=15)
+scibt.plot_results()
+#+end_src
+
+* Using Deep Learning for Market Movement Prediction
+
+** Simple Classification Problem Revisited
+
+#+begin_src python
+data = pd.DataFrame({'hours': hours, 'success': success})
+
+from sklearn.neural_network import MLPClassifier
+
+model = MLPClassifier(hidden_layer_sizes=[32],
+                      max_iter=1000, random_state=100)
+
+model.fit(data['hours'].values.reshape(-1, 1), data['success'])
+
+data['prediction'] = model.predict(data['hours'].values.reshape(-1, 1))
+
+data.tail()
+
+data.plot(x='hours', y=['success', 'prediction'], style=['ro', 'b-'], ylim=[-.1, 1.1])
+plt.show()
+#+end_src
+
+** Using Deep Neural Networks to Predict Market Direction
+
+#+begin_src python
+# prepare data
+symbol = 'EUR='
+data = pd.DataFrame(raw[symbol]).rename(columns={symbol: 'price'})
+data['return'] = np.log(data['price'] / data['price'].shift(1))
+data['direction'] = np.where(data['return'] > 0, 1, 0)
+
+lags = 5
+
+cols = []
+for lag in range(1, lags + 1):
+    col = f'lag_{lag}'
+    data[col] = data['return'].shift(lag)
+    cols.append(col)
+data = data.dropna()
+
+data.round(4).tail()
+
+# fit model
+import tensorflow as tf
+from keras.models import Sequential
+from keras.layers import Dense
+from tensorflow.keras.optimizers import Adam, RMSprop
+
+def set_seeds(seed=100):
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(100)
+
+set_seeds()
+
+model = Sequential()
+model.add(Dense(64, activation='relu', input_shape=(lags,)))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+model.compile(optimizer=Adam(learning_rate=0.0001),
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+cutoff = '2017-12-31'
+
+training_data = data[data.index < cutoff].copy()
+mu, std = training_data.mean(), training_data.std()
+training_data_ = (training_data - mu) / std  # normalize
+test_data = data[data.index >= cutoff].copy()
+test_data_ = (test_data - mu) / std
+
+model.fit(training_data[cols],
+          training_data['direction'],
+          epochs=50,
+          verbose=False,
+          validation_split=0.2,
+          shuffle=False)
+
+res = pd.DataFrame(model.history.history)
+
+res[['accuracy', 'val_accuracy']].plot(style='--')
+plt.show()
+
+model.evaluate(training_data_[cols], training_data['direction'])
+
+pred = np.where(model.predict(training_data_[cols]) > 0.5, 1, 0)
+
+training_data['prediction'] = np.where(pred > 0, 1, -1)
+training_data['strategy'] = (training_data['prediction'] * training_data['return'])
+
+training_data[['return', 'strategy']].cumsum().apply(np.exp).plot()
+plt.show()
+
+# test set
+model.evaluate(test_data_[cols], test_data['direction'])
+
+pred = np.where(model.predict(test_data_[cols]) > 0.5, 1, 0)
+
+test_data['prediction'] = np.where(pred > 0, 1, -1)
+test_data['strategy'] = (test_data['prediction'] * test_data['return'])
+
+test_data[['return', 'strategy']].cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+So far the analysis mainly focuses on the log returns directly. We can
+also add other types of features to the mix, such as ones based on
+momentum, volatility, or distance measures.
+
+** Adding Different Types of Features
+
+#+begin_src python
+# add features
+data['momentum'] = data['return'].rolling(5).mean().shift(1)
+data['volatility'] = data['return'].rolling(20).std().shift(1)
+data['distance'] = (data['price'] - data['price'].rolling(50).mean()).shift(1)
+data = data.dropna()
+
+cols.extend(['momentum', 'volatility', 'distance'])
+
+# make training and test sets
+training_data = data[data.index < cutoff].copy()
+mu, std = training_data.mean(), training_data.std()
+training_data_ = (training_data - mu) / std
+test_data = data[data.index >= cutoff].copy()
+test_data_ = (test_data - mu) / std
+
+# make model
+# set_seeds()
+model = Sequential()
+model.add(Dense(32, activation='relu', input_shape=(len(cols),)))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+model.compile(optimizer=Adam(learning_rate=0.0001),
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+model.fit(training_data_[cols], training_data['direction'], verbose=False, epochs=25)
+model.evaluate(training_data_[cols], training_data['direction'])
+
+pred = np.where(model.predict(training_data_[cols]) > 0.5, 1, 0)
+training_data['prediction'] = np.where(pred > 0, 1, -1)
+training_data['strategy'] = (training_data['prediction'] * training_data['return'])
+
+training_data[['return', 'strategy']].cumsum().apply(np.exp).plot()
+plt.show()
+
+# test data
+model.evaluate(test_data_[cols], test_data['direction'])
+
+pred = np.where(model.predict(test_data_[cols]) > 0.5, 1, 0)
+test_data['prediction'] = np.where(pred > 0, 1, -1)
+test_data['strategy'] = (test_data['prediction'] * test_data['return'])
+
+test_data[['return', 'strategy']].cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
