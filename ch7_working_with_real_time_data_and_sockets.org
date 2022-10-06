@@ -1,1 +1,112 @@
 #+TITLE: Chapter 7: Working with Real-Time Data and Sockets
+
+*Running a simple tick data server* describes how to implement and run a
+ tick server for sample financial data
+
+*Connecting a simple tick data client* implements a tick data client to
+ connect to the tick data server
+
+*Signal generation in real time* shows how to generate trading signals
+ in real time based on data from the tick data server
+
+*Visualizing streaming data with plotly* uses plotly to plot streaming
+ data in real time
+
+* Running a Simple Tick Data Server
+
+The model we use for data generation is the geometric Brownian motion
+(without dividends) for which an exact Euler discretization is
+available:
+
+$S_t = S_{t - \Delta t} \exp{((r - \sigma^2 / 2) \Delta t + \sigma
+\sqrt{\Delta t} z)}$
+
+
+#+begin_src python :tangle server.py
+# chapter 7: sockets
+import zmq
+import math
+import time
+import random
+
+# the central object for socket communication
+context = zmq.Context()
+# PUB socket type
+socket = context.socket(zmq.PUB)
+socket.bind('tcp://0.0.0.0:5555')
+
+class InstrumentPrice:
+    def __init__(self):
+        self.symbol = 'SYMBOL'
+        self.t = time.time()  # initialization time
+        self.value = 100.
+        self.sigma = 0.4
+        self.r = 0.01
+
+    def simulate_value(self):
+        """generates a new, random stock price"""
+        t = time.time()  # record time when simulate_value is called
+        dt = (t - self.t) / (252 * 8 * 60 * 60)  # time delta in trading year fractions
+        dt *= 500  # make the instrument price movements seem larger. This is arbitrary
+        self.t = t  # update with current time
+        # simulate a new instrument price with GBM
+        self.value *= math.exp((self.r - 0.5 * self.sigma ** 2) * dt +
+                               self.sigma * math.sqrt(dt) * random. gauss(0, 1))
+        return self.value
+
+ip = InstrumentPrice()
+
+while True:
+    msg = f"{ip.symbol} {ip.simulate_value():.2f}"
+    print(msg)
+    socket.send_string(msg)
+    time.sleep(random.random() * 2)
+#+end_src
+
+Pretty neat! The output of the tick server looks like:
+
+#+begin_quote
+SYMBOL 98.19
+SYMBOL 98.48
+SYMBOL 98.48
+SYMBOL 98.43
+SYMBOL 98.31
+SYMBOL 98.42
+SYMBOL 98.93
+SYMBOL 98.32
+SYMBOL 98.46
+SYMBOL 98.78
+SYMBOL 99.45
+SYMBOL 98.74
+SYMBOL 98.93
+SYMBOL 98.93
+SYMBOL 98.86
+SYMBOL 98.84
+SYMBOL 98.30
+...
+#+end_quote
+
+* Connecting a Simple Tick Data Client
+
+#+begin_src python :tangle client.py
+import zmq
+
+context = zmq.Context()
+# socket type is SUB
+socket = context.socket(zmq.SUB)
+socket.connect('tcp://0.0.0.0:5555')
+# set the channel to which the socket subscribes
+# in the real world, we may subscribe to many sockets
+socket.setsockopt_string(zmq.SUBSCRIBE, 'SYMBOL')
+
+while True:
+    data = socket.recv_string()
+    print(data)
+#+end_src
+
+Now we have a server broadcasting via sockets to the client
+
+ZeroMQ also supports transmission of other object types, such as
+python objects (pickle files).
+
+* Signal Generation in Real Time
