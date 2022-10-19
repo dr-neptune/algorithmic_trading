@@ -110,3 +110,108 @@ ZeroMQ also supports transmission of other object types, such as
 python objects (pickle files).
 
 * Signal Generation in Real Time
+
+To generate signals in real time on the basis of an online algorithm,
+data needs to be collected and processed over time. Tick data needs to
+be collected and then resampled, and the momentum needs to be
+calculated based on the resampled data set (in a momentum based online
+algorithm).
+
+
+#+begin_src python :tangle momentum_online.py
+import zmq
+import datetime
+import numpy as np
+import pandas as pd
+from textwrap import dedent
+
+
+context = zmq.Context()
+socket = context.socket(zmq.SUB)
+socket.connect('tcp://0.0.0.0:5555')
+socket.setsockopt_string(zmq.SUBSCRIBE, 'SYMBOL')
+
+
+df = pd.DataFrame()
+mom = 3
+min_length = mom + 1
+
+
+while True:
+    # get tick data
+    data = socket.recv_string()
+    t = datetime.datetime.now()
+    sym, value = data.split()
+
+    df = pd.concat([df, pd.DataFrame({sym: float(value)}, index=[t])])
+    dr = df.resample('5s', label='right').last()
+    dr['returns'] = np.log(dr / dr.shift(1))
+
+    if len(dr) > min_length:
+        min_length += 1
+        dr['momentum'] = np.sign(dr['returns'].rolling(mom).mean())
+        print(dedent(f"""
+{'=' * 51}
+NEW SIGNAL | {datetime.datetime.now()}
+{'=' * 51}
+{dr.iloc[:-1].tail()}
+"""))
+        if dr['momentum'].iloc[-2] == 1.0:
+            print('\nLong market position')
+            # take some action (e.g. place buy order)
+        elif dr['momentum'].iloc[-2] == -1.0:
+            print('\nShort market position')
+            # take some action (e.g. place sell order)
+#+end_src
+
+* Visualizing Streaming Data with Plotly
+
+This will pop open a new plot at each iteration with the entire
+history. The better way to do this is to use Dash
+
+#+begin_src python :tangle plotly_simple.py
+import zmq
+import numpy as np
+import pandas as pd
+from datetime import datetime
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+symbol = 'SYMBOL'
+
+f = make_subplots(rows=3, cols=1, shared_xaxes=True)
+f.append_trace(go.Scatter(name='SYMBOL'), row=1, col=1)
+f.append_trace(go.Scatter(name='RETURN', line={'width': 1,
+                                               'dash': 'dot'},
+                                               mode='lines+markers',
+                                               marker={'symbol': 'triangle-up'}),
+                                               row=2, col=1)
+f.append_trace(go.Scatter(name='MOMENTUM', line={'width': 1, 'dash': 'dot'},
+                          mode='lines+markers', marker={'symbol': 'x'}), row=3, col=1)
+
+fig = go.FigureWidget(f)
+df = pd.DataFrame()
+
+context = zmq.Context()
+socket = context.socket(zmq.SUB)
+socket.connect('tcp://0.0.0.0:5555')
+socket.setsockopt_string(zmq.SUBSCRIBE, 'SYMBOL')
+
+times, prices = [], []
+
+for _ in range(50):
+    msg = socket.recv_string()
+    t = datetime.now()
+    times.append(t)
+    sym, price = msg.split()
+    df = pd.concat([df, pd.DataFrame({sym: float(price)}, index=[t])])
+    df['RET'] = np.log(df[sym] / df[sym].shift(1))
+    df['MOM'] = df['RET'].rolling(10).mean()
+    fig.data[0].x = df.index
+    fig.data[0].y = df[sym]
+    fig.data[1].x = df.index
+    fig.data[1].y = df['RET']
+    fig.data[2].x = df.index
+    fig.data[2].y = df['MOM']
+    fig.show()
+#+end_src

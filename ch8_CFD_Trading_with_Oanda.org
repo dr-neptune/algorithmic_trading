@@ -1,0 +1,97 @@
+#+TITLE: Chapter 8: CFD Trading with Oanda
+
+There is a number of online trading platforms (brokers) available, and
+the choice of a platform might be influenced by multiple factors:
+
+1. Instruments
+  - type of instrument, e.g. stocks, ETFs, bonds, currencies,
+    commodities, options, futures
+2. Strategies
+  - type of strategy, e.g. long-only, long and short, single
+    instrument, multiple-instrument, different time frames
+3. Costs
+  - fixed and variable costs
+4. Technology
+  - APIs and other interfaces (like phones)
+5. Jurisdiction
+  - There are different legal frameworks in place for different
+    countries/regions
+
+This chapter looks at *Oanda*, which offers a wide range of "contracts
+for difference (CFD)" products. Main characteristics of CFDs are that
+they are leveraged and traded on margin such that losses might exceed
+the initial capital. It offers long and short CFDs, as well as
+different order types (such as market or limit orders), with or
+without profit targets and/or (trailing) stop losses. There are no
+fixed transaction costs associated with the trading of CFDs, but there
+rae bid-ask spreads that lead to variable transaction costs when
+trading CFDs. A major strength of the platform is that it has a fully
+features api with a python wrapper.
+
+* Backtesting a Momentum Strategy on Minute Bars
+
+#+begin_src python
+instrument, start, end, granularity, price = 'EUR_USD', '2020-08-10', '2020-08-12', 'M1', 'M'
+
+data = api.get_history(instrument, start, end, granularity, price)
+
+data.info()
+
+import numpy as np
+data['returns'] = np.log(data['c'] / data['c'].shift(1))
+cols = []
+
+for momentum in [15, 30, 60, 120]:
+    col = f'position_{momentum}'
+    data[col] = np.sign(data['returns'].rolling(momentum).mean())
+    cols.append(col)
+
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('tkAgg')
+
+strats = ['returns']
+
+for col in cols:
+    strat = f"strategy_{col.split('_')[1]}"
+    data[strat] = data[col].shift(1) * data['returns']
+    strats.append(strat)
+
+data[strats].dropna().cumsum().apply(np.exp).plot()
+plt.show()
+#+end_src
+
+** Factoring in Leverage and Margin
+
+In general, when you buy a share of stock (for say 100 USD) the profit
+and loss calculations are straight-forward. Trading CFDs on the Oanda
+platform involves leverage and margin.
+
+This allows the profits to be amplified by some amount (or losses to
+be amplified).
+
+Suppose a trader wants to get a long expsure of 10000 at an ask price
+of 1.1. Without leverage, the trader would purchase 10000 units of the
+CFD. If the price of the instrument rises to 1.105, the absolute
+profit is 10000*0.005 = 50 or 0.5%.
+
+Suppose an algorithmic traader chooses a leverage ratio of 20:1, which
+translates to a 5% margin (= 100% / 20). This in turn implies that the
+trader only needs to put up a margin of 10000*5% = 500 to get the same
+exposure as a trader buying 10000 worth of the security. If the price
+of the instrument then rises to 1.105, the absolute profit remains the
+same at 50, but the relative profit rises to 50/500 = 10%. The return
+is amplified by a factor of 20 /when things go as desired/.
+
+If things go south: Assume the instrument price drops to 1.08, leading
+to a loss of 10000*(1.08 - 1.1) = -200. The relative loss is now -200
+/ 500 = -40%. If the accoun tthe algo trader is trading with has less
+than 200 left in equity/cash, the position needs to be closed out
+since the (regulatory) margin requirements cannot be met anymore. If
+losses eat the margin completely, additional funds need to be
+allocated as margin to keep the trade alive.
+
+#+begin_src python
+data[strats].dropna().cumsum().apply(lambda x: x * 20).apply(np.exp).plot()
+plt.show()
+#+end_src
