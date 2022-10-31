@@ -1,1 +1,120 @@
 #+TITLE: Chapter 9: FX Trading with FXCM
+
+FXCM offers the following:
+- instruments (fx, cfds, commodities, rates)
+- strategies
+  - leveraged long and short positions, market entry orders, stop loss
+    orders, take profit targets
+- costs
+  - in addition to bid/ask spread, a fixed fee is generally due for
+    every trade with FXCM
+- technology
+  - rest api
+
+* Getting Started
+
+#+begin_src python
+# getting started
+import datetime as dt
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('tkAgg')
+import time
+import numpy as np
+import pandas as pd
+from pprint import pprint
+from fxcmpy import fxcmpy, fxcmpy_tick_data_reader as tdr
+
+
+api = fxcmpy(config_file='pyalgo.cfg')
+#+end_src
+
+* Retrieving Data
+
+#+begin_src python
+# the data retrieval stuff here is broken
+# instead I'm using the api documentation to get data
+# https://fxcmpy.tpq.io/02_historical_data.html
+start, stop = dt.datetime(2020, 3, 25, 12, 0, 0), dt.datetime(2020, 3, 28, 12, 15, 00)
+data = con.get_candles('EUR/USD', period='m1', start=start, end=stop)
+
+bid_ask = ['bidclose', 'askclose']
+data['mid'] = data[bid_ask].mean(axis=1)
+data['SMA'] = data['mid'].rolling(60).mean()
+data[['mid', 'SMA']].plot()
+plt.show()
+#+end_src
+
+* Retrieving Candles Data
+
+#+begin_src python
+# the data retrieval stuff here is broken
+data['midclose'] = data[['bidclose', 'askclose']].mean(axis=1)
+data['sma1'] = data['midclose'].rolling(30).mean()
+data['sma2'] = data['midclose'].rolling(100).mean()
+
+data[['midclose', 'sma1', 'sma2']].plot()
+plt.show()
+#+end_src
+
+* Retrieving Streaming Data
+
+#+begin_src python
+def output_datastream(data, dataframe):
+    """
+    this is a callback function that prints out elements of the retrieved dataset
+    """
+    print('%3d | %s | %s | %6.5f, %6.5f'
+          % (len(dataframe), data['Symbol'],
+             pd.to_datetime(int(data['Updated']), unit='ms'),
+             data['Rates'][0], data['Rates'][1]))
+
+# subscribes to a data stream asynchronously
+api.subscribe_market_data('EUR/USD', (output_datastream, ))
+
+# return last available dataset
+api.get_last_price('EUR/USD')
+
+# unsubscribe from stream
+api.unsubscribe_market_data('EUR/USD')
+#+end_src
+
+* Placing Orders
+
+The fxcmpy package allows for the placement and management of all
+types of orders that are also available via the trading application of
+FXCM (such as entry orders or trailing stop loss orders).
+
+#+begin_src python
+# check that there are no open positions
+api.get_open_positions()
+
+# make order
+order = api.create_market_buy_order('EUR/USD', 1)
+
+# check that order went through
+sel = ['tradeId', 'amountK', 'currency', 'grossPL', 'isBuy']
+api.get_open_positions()[sel].iloc[0]
+
+# another order
+order = api.create_market_buy_order('EUR/GBP', 1)
+api.get_open_positions()[sel]
+
+# close positions
+order = api.create_market_sell_order('EUR/USD', 1)
+order = api.create_market_sell_order('EUR/USD', 1)
+
+api.close_all_for_symbol('EUR/GBP')
+api.close_all()
+#+end_src
+
+* Account Information
+
+#+begin_src python
+api.get_default_account()
+# get account information
+api.get_accounts().T
+
+# get current balance
+api.get_accounts_summary()['balance'][0]
+#+end_src

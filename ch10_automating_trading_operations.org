@@ -1,3 +1,38 @@
+#+TITLE: Ch 10: Automating Trading Operations
+
+This chapter covers the following topics:
+
+- the Kelly criterion
+  - this helps with sizing trades
+- backtesting
+- transformation of offline algorithms into online algorithms
+- infrastructure deployment
+- logging and monitoring
+- visual step by step overview
+
+* Capital Management
+
+The Kelly Criterion allows for an explicit calculation of the fraction
+of the available capital a trader should deploy to a given strategy,
+given its statistical return characteristics.
+
+** Kelly Criterion in a Binomial Setting
+
+We assume that a gambler is playing a coin tossing game against an
+infinitely rich bank or casino. We assume further that the probability
+for heads is some value $p$ for which the following holds:
+
+$\frac{1}{2} < p < 1$
+
+and for tails:
+
+$q = 1 - p < \frac{1}{2}$
+
+There is a derivation in the book that boils down to the optimal
+fraction to invest per round of betting: $f^* = p - q$. For example,
+with $p = 0.55$, then $f = 0.55 - 0.45 = 0.1$
+
+#+begin_src python
 import math
 import time
 import numpy as np
@@ -48,3 +83,16 @@ plt.plot(c3.mean(axis=1), 'y', label='$f^*=0.25$')
 plt.plot(c4.mean(axis=1), 'm', label='$f^*=0.5$')
 plt.legend(loc=0)
 plt.show()
+#+end_src
+
+** Kelly Criterion for Stocks and Indices
+
+Assume now a stock market setting in which the relevant stock (index)
+can take on only 2 values after a period of one year from today, given
+its known value today. Specifically, assume the following holds true:
+
+$P(r^s = \mu + \sigma) = P(r^S = \mu - \sigma) = \frac{1}{2}$
+
+where
+- $E(r^S) = \mu > 0$ is the expected return of the stock over one year
+- $\sigma > 0$ is the standard deviation of returns (volatility)
