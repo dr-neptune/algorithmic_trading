@@ -48,3 +48,68 @@ plt.plot(c3.mean(axis=1), 'y', label='$f^*=0.25$')
 plt.plot(c4.mean(axis=1), 'm', label='$f^*=0.5$')
 plt.legend(loc=0)
 plt.show()
+
+raw = pd.read_csv('https://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                  index_col=0, parse_dates=True)
+
+symbol = '.SPX'
+
+data = pd.DataFrame(raw[symbol])
+data['return'] = np.log(data / data.shift(1))
+data = data.dropna()
+data.tail()
+
+mu = data['return'].mean() * 252
+sigma = data['return'].std() * 252 ** 0.5
+r = 0.0
+f = (mu - r) / sigma ** 2
+f
+
+from typing import List
+
+def kelly_strategy(data: pd.DataFrame, strategies: List[float]):
+    for strategy in strategies:
+        equ = f'equity_{strategy:.2f}'
+        cap = f'capital_{strategy:.2f}'
+        data[equ] = 1
+        data[cap] = data[equ] * strategy
+        for i, t in enumerate(data.index[1:]):
+            t1 = data.index[i]
+            data.loc[t, cap] = data[cap].loc[t1] * math.exp(data['return'].loc[t])
+            data.loc[t, equ] = (data[cap].loc[t] -
+                                data[cap].loc[t1] +
+                                data[equ].loc[t1])
+            data.loc[t, cap] = data[equ].loc[t] * f
+    return data
+
+
+
+output = kelly_strategy(data, [f * 0.5, f * 0.66, f])
+output.tail().iloc[0]
+
+
+equs = []
+def kelly_strategy(f):
+    global equs
+    equ = 'equity_{:.2f}'.format(f)
+    equs.append(equ)
+    cap = 'capital_{:.2f}'.format(f)
+    data[equ] = 1
+    data[cap] = data[equ] * f
+    for i, t in enumerate(data.index[1:]):
+        t_1 = data.index[i]
+        data.loc[t, cap] = data[cap].loc[t_1] * \
+          math.exp(data['return'].loc[t])
+        data.loc[t, equ] = data[cap].loc[t] - \
+          data[cap].loc[t_1] + \
+          data[equ].loc[t_1]
+        data.loc[t, cap] = data[equ].loc[t] * f
+
+kelly_strategy(f * 0.5)
+kelly_strategy(f * 0.55)
+kelly_strategy(f)
+print(data[equs].tail())
+
+ax = data['return'].cumsum().apply(np.exp).plot()
+data[equs].plot(ax=ax, legend=True)
+plt.show()

@@ -96,3 +96,78 @@ $P(r^s = \mu + \sigma) = P(r^S = \mu - \sigma) = \frac{1}{2}$
 where
 - $E(r^S) = \mu > 0$ is the expected return of the stock over one year
 - $\sigma > 0$ is the standard deviation of returns (volatility)
+
+There is a derivation in the book that leads to the optimal fraction
+$f^*$ being:
+
+$f^* = \frac{\mu - r}{\sigma^2}$
+
+Here is a real-world example: a passive long position in the S&P 500.
+
+If we assume a risk-free rate of 0, then our Kelly fraction is ~4.6,
+implying that for every dollar invested, 4.6 dollars shall be
+invested. This implies leverage. All things being equal, the Kelly
+criterion implies a higher leverage when the expected return is higher
+and the volatility is lower.
+
+#+begin_src python
+raw = pd.read_csv('https://hilpisch.com/pyalgo_eikon_eod_data.csv',
+                  index_col=0, parse_dates=True)
+
+symbol = '.SPX'
+
+data = pd.DataFrame(raw[symbol])
+data['return'] = np.log(data / data.shift(1))
+data = data.dropna()
+data.tail()
+
+mu = data['return'].mean() * 252
+sigma = data['return'].std() * 252 ** 0.5
+r = 0.0
+f = (mu - r) / sigma ** 2
+f
+#+end_src
+
+The following code simulates the application of the Kelly criterion
+and the optimal leverage ratio. For simplicity, the initial equity is
+set to 1 while the initially invested total capital is set to $1 \cdot
+f^*$. Depending on the performance of the capital deployed to the
+strategy, the total capital itself is adjusted daily according to the
+available equity.
+
+#+begin_src python
+equs = []
+def kelly_strategy(f):
+    global equs
+    equ = 'equity_{:.2f}'.format(f)
+    equs.append(equ)
+    cap = 'capital_{:.2f}'.format(f)
+    data[equ] = 1
+    data[cap] = data[equ] * f
+    for i, t in enumerate(data.index[1:]):
+        t_1 = data.index[i]
+        data.loc[t, cap] = data[cap].loc[t_1] * \
+          math.exp(data['return'].loc[t])
+        data.loc[t, equ] = data[cap].loc[t] - \
+          data[cap].loc[t_1] + \
+          data[equ].loc[t_1]
+        data.loc[t, cap] = data[equ].loc[t] * f
+
+kelly_strategy(f * 0.5)
+kelly_strategy(f * 0.55)
+kelly_strategy(f)
+print(data[equs].tail())
+
+# gross performance of the S&P 500 compared to equity position given different values of f^*
+ax = data['return'].cumsum().apply(np.exp).plot()
+data[equs].plot(ax=ax, legend=True)
+plt.show()
+#+end_src
+
+Code is kinda crazy, but that's alright. The plot shows that the
+optimal Kelly leverage leads to rather erratic evolution of the equity
+position (high volatility). This makes sense, we have a ~4.6 leverage
+ratio. As a result of this, practicioners often do not use 'full
+Kelly', but instead 'half Kelly'. In the current example this is ~2.3.
+
+* ML-Based Strategy
